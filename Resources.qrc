@@ -1,0 +1,18 @@
+<RCC>
+    <qresource prefix="/">
+        <file>shader/Terrain.fsh</file>
+        <file>shader/Terrain.vsh</file>
+        <file>shader/Skybox.vsh</file>
+        <file>shader/Skybox.fsh</file>
+        <file>shader/PostProcessing.vsh</file>
+        <file>shader/PostProcessing.fsh</file>
+        <file>shader/Model.vsh</file>
+        <file>shader/Model.fsh</file>
+        <file>shader/Grass.vsh</file>
+        <file>shader/Grass.fsh</file>
+        <file>shader/Shadow.fsh</file>
+        <file>shader/Shadow.vsh</file>
+        <file>shader/Water.frag</file>
+        <file>shader/Water.vert</file>
+    </qresource>
+</RCC>
