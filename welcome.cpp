@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,75 +14,68 @@
  *  along with this program; if not, write to the Free Software Foundation,
  *  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
+
 #include "welcome.h"
-#include "ui_welcome.h"
 
 #include "atlas.h"
 
-Welcome::Welcome(QWidget *parent) :
-    QWidget(parent),
-    ui(new Ui::Welcome)
+Welcome::Welcome(QQuickItem *parent) :
+    QQuickItem(parent),m_projectModel(new QStandardItemModel)
 {
-    ui->setupUi(this);
+    QHash<int, QByteArray> roleNames;
+    roleNames[Welcome::TitleRole] =  "title";
+    roleNames[Welcome::PathRole] = "path";
+    m_projectModel->setItemRoleNames(roleNames);
 
-    for(int i=0;i<5;i++)
-    {
-        buttons[i]=NULL;
-    }
+    connect(this,SIGNAL(visibleChanged()),this,SLOT(reloadRecentProjects()));
 }
 
 Welcome::~Welcome()
 {
-    delete ui;
+    delete m_projectModel;
 }
 
-void Welcome::load(Atlas *atlas)
+void Welcome::load(Window *atlas)
 {
     this->atlas=atlas;
+}
 
-    QVBoxLayout* layout = new QVBoxLayout();
-    QSettings settings;
+QStandardItemModel *Welcome::projectModel() const
+{
+    return m_projectModel;
+}
 
-    files = settings.value("recentFileList").toStringList();
-    for(int i=0;i<files.size() && i<5;i++)
-    {
-        QString text = tr("&%1. %2").arg(i + 1).arg(files[i]);
-        QPushButton * label=new QPushButton(text);
-        label->setFlat(true);
-        label->setStyleSheet ("text-align: left");
-        connect(label,SIGNAL(clicked()),this,SLOT(openRecentProject()));
-        layout->addWidget(label);
-        buttons[i]=label;
+void Welcome::setProjectModel(QStandardItemModel *arg)
+{
+    if (m_projectModel != arg) {
+        m_projectModel = arg;
+        emit projectModelChanged();
     }
-    QSpacerItem * space=new QSpacerItem(10,10,QSizePolicy::Minimum,QSizePolicy::Expanding);
-    layout->addItem(space);
-    delete ui->project_frame->layout();
-    ui->project_frame->setLayout(layout);
 }
 
-
-void Welcome::on_push_OpenProject_clicked()
+void Welcome::reloadRecentProjects()
 {
-    atlas->openProjectDialog(true);
-}
+    QStringList files = GlobalSettings::instance()->recentProjects();
 
-void Welcome::on_push_NewProject_clicked()
-{
-    atlas->newProjectDialog(true);
-}
-
-void Welcome::openRecentProject()
-{
-    QPushButton *action = qobject_cast<QPushButton *>(sender());
-    if (action!=NULL)
+    m_projectModel->clear();
+    QFileInfo info;
+    for(int i=0;i<files.size();i++)
     {
-        for(int i=0;i<5 && i<files.size();i++)
+        info.setFile(files[i]);
+        if(info.exists())
         {
-            if(action==buttons[i])
-            {
-                atlas->openProject(files[i]);
-                break;
-            }
+            QStandardItem * item=new QStandardItem;
+            item->setData(info.baseName(),Welcome::TitleRole);
+            item->setData(info.filePath(),Welcome::PathRole);
+            m_projectModel->appendRow(item);
         }
     }
+    emit projectModelChanged();
+    files.clear();
+}
+
+void Welcome::openProject(int index)
+{
+    QString path = m_projectModel->item(index)->data(Welcome::PathRole).toString();
+    atlas->openProject(path);
 }

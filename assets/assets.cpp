@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,6 +14,7 @@
  *  along with this program; if not, write to the Free Software Foundation,
  *  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
+
 #include "assets.h"
 
 Assets::Assets()
@@ -24,9 +25,7 @@ bool Assets::load(const QString &path)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        //QMessageBox::critical(this,
-          //                    "QXSRExample::parseXML",  "Couldn't open example.xml",  QMessageBox::Ok);
-        qDebug()<<"Asset file not found: "+path;
+        cerr<<"Asset file not found: "<<path<<endl;
         return false;
     }
     QFileInfo info(path);

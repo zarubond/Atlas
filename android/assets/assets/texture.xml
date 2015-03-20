@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<textures>
+  <texture>
+    <file>texture/pattern_44/diffus.png</file>
+    <normal>texture/pattern_44/normal.png</normal>
+    <name>Pattern 44</name>
+    <type></type>
+    <author>Nobiax</author>
+    <licence>WTFPL</licence>
+    <source>http://nobiax.deviantart.com/</source>
+  </texture>
+  <texture>
+    <file>texture/pattern_45/diffus.png</file>
+    <normal>texture/pattern_45/normal.png</normal>
+    <name>Pattern 45</name>
+    <type></type>
+    <author>Nobiax</author>
+    <licence>WTFPL</licence>
+    <source>http://nobiax.deviantart.com/</source>
+  </texture>
+  <texture>
+    <file>texture/pattern_78/diffus.png</file>
+    <normal>texture/pattern_78/normal.png</normal>
+    <name>Pattern 78</name>
+    <type></type>
+    <author>Nobiax</author>
+    <licence>WTFPL</licence>
+    <source>http://nobiax.deviantart.com/</source>
+  </texture>  
+</textures>
+

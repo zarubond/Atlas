@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,109 +17,42 @@
 #ifndef ATLAS_H
 #define ATLAS_H
 
-#include <QMainWindow>
+#include <QObject>
+#include <QQmlEngine>
+#include <QTimer>
+#include "window.h"
 
-#include <QStandardItemModel>
-#include <QMessageBox>
-#include <QInputDialog>
-#include <QColorDialog>
-#include <QShortcut>
-#include <QGraphicsView>
-
-#include "canvas.h"
-#include "welcome.h"
-#include "editor/editor.h"
-#include "dialog/dialognewproject.h"
-#include "dialog/dialogsun.h"
-#include "dialog/configdialog.h"
-
-#include "project/project.h"
-#include "project/projecthandler.h"
-#include "session.h"
-#include "settings.h"
-
-#include "tools/shell.h"
-#include "assets/texturedialog.h"
-
-namespace Ui {
-    class Atlas;
-}
-
-class Atlas : public QMainWindow
+//http://httpwww.ics.com/blog/integrating-c-qml#.U53v-f7ZJUQ
+class Atlas : public QObject
 {
     Q_OBJECT
-    
 public:
-    explicit Atlas(QWidget *parent = 0);
+    explicit Atlas(QObject *parent = 0);
     ~Atlas();
-
-    /**
-     * @brief openProject OpenProject with given name.
-     * @param file_name
-     * @return
-     */
-    bool openProject(const QString & file_name);
+    bool start();
 public slots:
-    /**
-     * @brief newProjectDialog Open new project dialog
-     */
-    void newProjectDialog(bool);
-    /**
-     * @brief openProjectDialog Open dialog for opening project
-     */
-    void openProjectDialog(bool);
+    void handleLoggedMessage(const QOpenGLDebugMessage &debugMessage);
+private:
+    bool expired();
+private slots:
+    void initGL();
+    void close(QQuickCloseEvent*);
+    void init();
 
 private:
-    void closeEvent(QCloseEvent *);
-    void reloadRecentProject();
+    void timerEvent(QTimerEvent *);
+    Window * atlas;
+    GlobalSettings settings;
+    Assets assets;
 
-    void updatePosition();
+    QOpenGLContext * main_context;
+    QOffscreenSurface * fake_surface;
 
-    //master object
-    Ui::Atlas *ui;
-    Canvas * space;
-    Welcome * welcome;
-    Session session;
-    Editor editor;
-    Settings settings;
-    bool running;
-    Shell shell;
-
-    QElapsedTimer time;
-
-protected:
-    void keyPressEvent(QKeyEvent * key);
-    void keyReleaseEvent(QKeyEvent * key);
-private slots:
-    bool init();
-
-    void run();
-    void stop();
-
-    void showWelcome();
-    void showSpace();
-
-    void action_SaveAll();
-    void action_map_export();
-
-    void action_Sun();
-    void action_help();
-    void action_Undo();
-    void action_Redo();
-    void action_Quit();
-    void action_CloseProject();
-    void action_OpenRecentProject();
-    void action_Wireframe(bool checked);
-    void action_Light(bool checked);
-    void action_Shadow(bool checked);
-    void action_Fullscreen(bool checked);
-    void action_Configure();
-    void action_Assets();
-
-    void on_toolTab_currentChanged(int index);
-    void on_view_free_clicked();
-    void on_view_editor_clicked();
-    void on_view_player_clicked();
+    QQmlEngine engine;
+    QQmlComponent *component;
+    QObject *topLevel;
+    QQuickWindow *window;
+    QOpenGLDebugLogger *logger;
 };
 
 #endif // ATLAS_H

@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -19,10 +19,11 @@
 
 #include <QMouseEvent>
 #include <QKeyEvent>
-#include <QApplication>
+#include <QtSensors/QRotationSensor>
+#include "controlsettings.h"
 
-#include "../tools/math/math.h"
-#include "../world/map.h"
+#include "../lib/math/math.h"
+#include "../lib/map.h"
 #include "../canvas.h"
 #include "player.h"
 
@@ -34,53 +35,77 @@ class Driver
 {
 public:
     Driver();
-    void setMap(Map * map,Canvas * canvas);
+    void setMap(Map * map, Canvas *canvas);
     bool keyPressEvent(QKeyEvent *e);
     bool keyReleaseEvent(QKeyEvent *e);
-    bool mouseMoveEvent(QMouseEvent *e);
+    bool hoverMoveEvent(QHoverEvent *e);
     bool mousePressEvent(QMouseEvent *e);
     bool mouseReleaseEvent(QMouseEvent *e);
+    bool mouseMoveEvent(QMouseEvent *e);
     bool wheelEvent(QWheelEvent *e);
-    void gamepadMotion(float deviation, float angle);
-    void gamepadInclination(float deviation,float angle);
+    bool gamepadEvent(GamepadEvent * e);
+
+    void gamepadOne(Vector2f angle);
+    void gamepadTwo(Vector2f angle);
 
     void update(int elapsed_time);
     void setPlayer(Player * player);
+    /**
+     * @brief setGyro Use gyroskope instead of mouse (or gamepad) to determine rotation
+     * @param enable
+     */
+    void setGyro(bool enable);
 
     void lockMouse(bool lock);
     bool mouseLocked();
     void enable();
     void disable();
 
+    void goUp(bool move);
+    void goDown(bool move);
+
     enum View{
         PLAYER=0,
-        EDITOR,
+        //EDITOR,
         FREE
     };
     void setView(View view);
 
+    float getSpeed() const;
+    void setSpeed(float value);
+    float maximumSpeed();
+
 private:
-    void right(GLfloat dist, Vertex3f &pos);
-    void forward(GLfloat dist, Vertex3f &pos);
+    void moveSide(GLfloat dist, Vector3f &pos);
+    void moveDirect(GLfloat dist, Vector3f &pos);
     void rotateY(float angle);
     void rotateX(float angle);
+    void updateGyro(Camera *camera);
 
     bool move;
     float player_jump;
     bool key_forward,key_backward,key_left,key_right,key_up,key_down;
     float speed;
+    float vertical_speed;
 
     bool right_press, move_lock;
     int mouse_x,mouse_y;
+    float smooth_x,smooth_y;
+    int use_x,use_y;
     int last_time;
 
     bool touchdown;
+    unsigned long mouse_timestamp;
+    bool gyro;
 
     Player * player;
     Map * map;
     View view;
+    Vector2f gamepad_inc,gamepad_move;
 
     Canvas * canvas;
+    //
+    QRotationSensor rotation;
 };
 
 #endif // DRIVER_H

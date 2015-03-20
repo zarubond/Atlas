@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,137 +14,268 @@
  *  along with this program; if not, write to the Free Software Foundation,
  *  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
+
 #include "canvas.h"
 
-#include <QBasicTimer>
-#include <QMouseEvent>
-#include <QDebug>
+#include <QOpenGLContext>
 
-#include <math.h>
-#include <locale.h>
-
-//#define SPEED_TEST
-
-Canvas::Canvas(QWidget *parent) :
-    QGLWidget(    QGLFormat(
-                      QGL::AlphaChannel |
-                      QGL::DoubleBuffer |
-                      QGL::DepthBuffer |
-                      QGL::Rgba |
-                      QGL::StencilBuffer
-                    ),parent)
+Canvas::Canvas(QQuickItem *parent) :
+    QQuickItem(parent)
 {
-    wireframe_switch=false;
+    m_timerID=0;
+    init=false;
+    renderer=NULL;
+    event_filter=NULL;
+
+    setAcceptedMouseButtons(Qt::AllButtons);
     mouse_grab=false;
+    connect(this,SIGNAL(widthChanged()),this,SLOT(resize()));
+    connect(this,SIGNAL(heightChanged()),this,SLOT(resize()));
+    connect(this,SIGNAL(xChanged()),this,SLOT(resize()));
+    connect(this,SIGNAL(yChanged()),this,SLOT(resize()));
+    connect(this,SIGNAL(visibleChanged()),this,SLOT(visibleChanged()));
 
-    post_poscessing=true;
-    render_shadow=true;
+    setActiveFocusOnTab(true);
+    setAcceptHoverEvents(true);
+    setFlag(QQuickItem::ItemHasContents);
 
+    time.start();
+    last_time=time.elapsed();
+    m_fps=60;
+    make_screen_shot=false;
+    _resized=false;
 
-    navig=NULL;
-    frame_count=0;
-    fps_count=0;
-    time_sec=0;
-    ls2=0;
-
-    setMouseTracking(true);
-
-    project=NULL;
-    camera=NULL;
-
-    init_gl=false;
-
-    lastMVP.loadIdentity();
+    m_fbo=NULL;
+    depth_rb=0;
+    texture=NULL;
+    renderer=NULL;
+    render_vr=false;
+    //setRotation(180);
 }
 
 Canvas::~Canvas()
 {
+    delete m_fbo;
+    delete texture;
+    delete renderer;
 }
 
-bool Canvas::init()
+void Canvas::timerEvent(QTimerEvent* evt)
 {
-    setFocusPolicy(Qt::StrongFocus);
-    glInit();
-
-    drawer.load();
-    skybox.load(1.0);
-
-    loadMapBox();
-    return true;
+    if (evt && evt->timerId() == m_timerID)
+        update();
 }
 
-void Canvas::setNavigator(Navigator *navig)
+QSGNode *Canvas::updatePaintNode(QSGNode* node, UpdatePaintNodeData*)
 {
-    this->navig=navig;
-}
+    if (width() <= 0 || height() <= 0 || !isLoaded() || !isVisible()) {
+        delete node;
+        return NULL;
+    }
+#ifdef QT_DEBUG
+    glError();
+#endif
 
-void Canvas::setProject(Project *project)
-{
-    if(project!=NULL)
+    QSGSimpleTextureNode* textureNode = static_cast<QSGSimpleTextureNode*>(node);
+    if (!textureNode)
+        textureNode = new QSGSimpleTextureNode();
+
+    if(!m_fbo || _resized)
     {
-        this->project=project;
-        drawer.clearRenderList();
+        delete m_fbo;
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 3, 0))
+        m_fbo = new QOpenGLFramebufferObject(width(), height(), QOpenGLFramebufferObject::Depth);//,QOpenGLFramebufferObject::Depth);
+       // m_fbo->setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+        //for some reason Qt has a problem with depth buffer, so this is a HACK to add it to framebuffer
+        //crashed under OpenGL ES 3.0
+#else
+        m_fbo = new QOpenGLFramebufferObject(width(), height());//,QOpenGLFramebufferObject::Depth);
+        if(depth_rb!=0)
+            glDeleteRenderbuffers(1, &depth_rb);
+
+        m_fbo->bind();
+        glGenRenderbuffers(1, &depth_rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width(), height());
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rb);
+        m_fbo->release();
+#endif
+    }
+    _resized=false;
+
+    delete texture;
+    texture=this->window()->createTextureFromId(m_fbo->texture(), m_fbo->size());
+    textureNode->setTexture(texture);
+    textureNode->setRect(this->boundingRect());
+
+    if (m_fbo)
+    {
+        if(renderer!=NULL)
+        {
+
+            mutex.lock();
+            if(init)
+            {/*
+              //  glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_TRUE);
+                glDepthFunc(GL_LEQUAL);
+                glEnable(GL_BLEND);
+                glEnable(GL_DEPTH_CLAMP);*/
+
+                glDepthMask(GL_TRUE);
+                glEnable(GL_DEPTH_TEST);
+                glDepthFunc(GL_LEQUAL);
+
+                if(render_vr)
+                {
+                    textureNode->setTextureCoordinatesTransform(QSGSimpleTextureNode::MirrorVertically);
+
+                    renderer->renderBuffersVR(world, camera);
+                    m_fbo->bind();
+                    renderer->renderSceneVR(world, camera);
+                    m_fbo->release();
+                }
+                else
+                {
+                    textureNode->setTextureCoordinatesTransform(QSGSimpleTextureNode::NoTransform);
+                    renderer->renderBuffers(world, camera);
+                    m_fbo->bind();
+                    renderer->renderScene(world, camera);
+                    m_fbo->release();
+                }
+
+
+                if(make_screen_shot)
+                    createScreenShot();
+            }
+            else
+            {
+                connect(window()->openglContext(), SIGNAL(aboutToBeDestroyed()),
+                                this, SLOT(cleanup()), Qt::DirectConnection);
+                init=renderer->init();
+
+                resize();
+                init=true;
+            }
+            mutex.unlock();
+        }
+        else {
+            if(glVersion()==OpenGL::OPENGL_ES_2_0)
+                renderer=new SceneRendererForward;
+            else
+                renderer=new SceneRendererDeferred;
+        }
+    }
+    updateFps();
+    return textureNode;
+}
+
+void Canvas::renderVr(bool enable)
+{
+    render_vr=enable;
+}
+
+void Canvas::makeSnapshot()
+{
+    make_screen_shot=true;
+}
+
+void Canvas::cleanup()
+{
+    killTimer(m_timerID);
+}
+
+
+void Canvas::updateFps()
+{
+    int t=time.elapsed();
+/*
+        int f=(1000.0f/float(t-last_time)+m_fps*4.0)/5.0;
+       // if(m_fps>60) m_fps=60;
+        last_time=t;
+    //    if(f!=m_fps)
+        {
+            m_fps=f;
+            emit fpsChanged(int(m_fps));
+        }
+        cout<<"flip"<<endl;
+*/
+
+    if(t-last_time>1000)
+    {
+        last_time=t;
+        m_fps=fps_cnt;
+        emit fpsChanged(int(fps_cnt));
+        fps_cnt=0;
     }
     else
-        this->project=NULL;
+        fps_cnt++;
 }
 
-GLfloat Canvas::getDepth(unsigned x, unsigned y)
+void Canvas::visibleChanged()
 {
-    GLfloat depth;
-    glReadPixels(x, height() - y - 1, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
-    return depth;
+    if(isVisible())
+    {
+        if(window()!=NULL)
+        {
+            m_timerID = startTimer(17); //17 to be lower than 60, flickering problem
+        }
+    }
+    else
+    {
+        killTimer(m_timerID);
+        m_timerID=0;
+    }
 }
 
-void Canvas::showWireframe(bool wireframe)
+void Canvas::createScreenShot()
 {
-    wireframe_switch=wireframe;
+    make_screen_shot=false;
+    int w=width();
+    int h=height();
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    QPointF point=mapFromScene(QPointF(0,0));
+    //OpenGL has inverse vertical position
+    int y=window()->height()-height()+point.y();
+    Image * img=new Image(w,h,QImage::Format_RGBA8888);
+    glFinish();
+    //-point.x(),y
+    glReadPixels(-point.x(), y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, img->bits());
+    glFinish();
+    img->mirror(false, true);
+    emit screenShotDone(img);
 }
 
-bool Canvas::isWireframe()
+const Camera *Canvas::getCamera() const
 {
-    return wireframe_switch;
+    return &camera;
 }
 
-void Canvas::showLights(bool lights)
+void Canvas::setCamera(const Camera &value)
 {
-    post_poscessing=lights;
+    mutex.lock();
+    camera = value;
+    mutex.unlock();
 }
 
-void Canvas::showShadows(bool shadows)
+void Canvas::setWorld(WorldGraphics *world)
 {
-    render_shadow=shadows;
-}
-
-bool Canvas::isShadows()
-{
-    return render_shadow;
-}
-
-int Canvas::fps()
-{
-    return fps_count;
-}
-
-bool Canvas::isLights()
-{
-    return post_poscessing;
+    mutex.lock();
+    this->world=world;
+    mutex.unlock();
 }
 
 void Canvas::captureMouse()
 {
      grabMouse();
-     QApplication::setOverrideCursor( QCursor( Qt::BlankCursor ));
-     int x=width()/2,y=height()/2;
-     QPoint pos=mapToGlobal(QPoint(0,0));
-     QCursor::setPos(pos.x()+x,pos.y()+y);
+     QGuiApplication::setOverrideCursor( QCursor( Qt::BlankCursor ));
      mouse_grab=true;
 }
 
 void Canvas::releaseMouse()
 {
-     QGLWidget::releaseMouse();
-     QApplication::setOverrideCursor( QCursor( Qt::ArrowCursor ));
+     QGuiApplication::setOverrideCursor( QCursor( Qt::ArrowCursor ));
      mouse_grab=false;
 }
 
@@ -153,358 +284,81 @@ bool Canvas::isCaptured()
     return mouse_grab;
 }
 
-void Canvas::initializeGL()
+//HACK
+void Canvas::wheelEvent(QWheelEvent *event)
 {
-#if QT_VERSION < 0x050000
-    OpenGL ogl(context());
-#else
-    OpenGL ogl(context()->contextHandle());
-#endif
-    ogl.init();
-#ifndef OPENGL_ES
-    ogl.vSync(true);
-#endif
-
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(GL_TRUE);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_BLEND);
-    //antiallising
-    glEnable(GL_MULTISAMPLE);
-
-#ifndef OPENGL_ES
-    postpro.init();
-#endif
-
-    init_gl=true;
+    if(event_filter!=NULL) event_filter->eventFilter(this,event);
 }
 
-void Canvas::resizeGL(int w, int h)
+
+
+void Canvas::mouseMoveEvent(QMouseEvent *event)
 {
-    // Set OpenGL viewport to cover whole widget
-    glViewport(0, 0, w, h);
-    if(project!=NULL)
+    if(event_filter!=NULL) event_filter->eventFilter(this,event);
+}
+
+void Canvas::mousePressEvent(QMouseEvent *event)
+{
+    setFocus(true);
+    if(event_filter!=NULL)
     {
-        float dist=sqrt(project->map.depth()*project->map.depth() +
-                        project->map.width()*project->map.width() +
-                        project->map.height()*project->map.height());
-        if(camera!=NULL) camera->perspective(45,w,h,0.05,dist);
+        mutex.lock();
+        event_filter->eventFilter(this,event);
+        mutex.unlock();
     }
-    else
-        if(camera!=NULL) camera->perspective(45.0,w,h,0.05,1000.0);
-#ifndef OPENGL_ES
-    if(init_gl)
-        postpro.resize(w,h);
-#endif
-#ifdef SPEED_TEST
-    std::cout<<"Resolution: "<<w<<"x"<<h<<" px--------------"<<std::endl;
-#endif
 }
 
-void Canvas::paintGL()
+void Canvas::mouseReleaseEvent(QMouseEvent *event)
 {
-    if(project==NULL)
-        return;
-
-    if (frame_count == 0)
-    {
-         m_time.start();
-         time_sec=0;
-         frame_count=0;
-         ls2=m_time.elapsed();
-    }
-    else
-    {
-        if(m_time.elapsed()-time_sec>=1000)
-        {
-            fps_count=frame_count;
-#ifdef Q_WS_ANDROID
-            qDebug()<<frame_count;
-#endif
-            frame_count=0;
-            time_sec=m_time.elapsed();
-        }
-    }
-
-    frame_count++;
-
-    float t=m_time.elapsed()-ls2;
-    ls2=m_time.elapsed();
-
-#ifdef SPEED_TEST
-    QElapsedTimer timer;
-
-    glFinish();
-    timer.start();
-#endif
-   // post_poscessing=false;
-    if(post_poscessing)
-    {
-#ifndef OPENGL_ES
-
-        Matrix4f shad;
-
-        if(render_shadow)
-        {
-            postpro.shadow();
-            shad=renderShadow(m_time.elapsed());
-#ifdef SPEED_TEST
-            glFinish();
-            std::cout<<"Shadow time:"<<timer.elapsed()<<"ms"<<std::endl;
-            timer.restart();
-#endif
-        }
-
-        postpro.process(m_time.elapsed());
-       // glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-      //  glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-
-
-        glClear(GL_COLOR_BUFFER_BIT);
-        //glClearColor(0.7,1.0,1.0,1.0);
-//glClearDepth(1.0);
-        skybox.render(camera->getLook(),camera->getPosition());
-        //glClear(GL_DEPTH_BUFFER_BIT);
-      //  glClearDepth(1.0);
-        glClear(GL_DEPTH_BUFFER_BIT);
-        renderScene(camera->getLook());
-        renderBox(camera->getLook());
-
-        glDepthMask(GL_FALSE);
-        //glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-        postpro.render(project->light,camera->getPosition(),shad);
-        glDepthMask(GL_TRUE);
-#ifdef SPEED_TEST
-            glFinish();
-            std::cout<<"Render time with light:"<<timer.elapsed()<<"ms"<<std::endl;
-            timer.restart();
-#endif
-
-#else
-
-        glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-        glClearColor(0.7,1.0,1.0,1.0);
-
-        renderBox(current_camera.getLook());
-        renderScene(current_camera.getLook());
-#ifdef SPEED_TEST
-            glFinish();
-            std::cout<<"Render time:"<<timer.elapsed()<<"ms"<<std::endl;
-            timer.restart();
-#endif
-
-#endif
-
-    }
-    else
-    {
-        //render scene
-        //glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
-        //glClearColor(0.7,1.0,1.0,1.0);
-         skybox.render(camera->getLook(),camera->getPosition());
-        // glClearDepth(1.0);
-        glClear(GL_DEPTH_BUFFER_BIT);
-        renderBox(camera->getLook());
-        renderScene(camera->getLook());
-
-#ifdef SPEED_TEST
-            glFinish();
-            std::cout<<"Render time:"<<timer.elapsed()<<"ms"<<std::endl;
-            timer.restart();
-#endif
-    }
-
-    OpenGL::Error();
-}
-Camera *Canvas::getCamera() const
-{
-    return camera;
+    if(event_filter!=NULL) event_filter->eventFilter(this,event);
 }
 
-void Canvas::setCamera(Camera *value)
+void Canvas::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    camera = value;
-    camera->setPitch(-M_PI_4);
-    camera->setYaw(-M_PI_2);
+    if(event_filter!=NULL) event_filter->eventFilter(this,event);
 }
 
-void Canvas::render(const Matrix4f &mvp,int elapsed)
+void Canvas::hoverMoveEvent(QHoverEvent * event)
 {
-    drawer.render(mvp,elapsed);
-
-    if(navig!=NULL)
-        navig->render(mvp);
+    if(event_filter!=NULL) event_filter->eventFilter(this,event);
 }
 
-void Canvas::renderScene(const Matrix4f &mvp)
+void Canvas::keyPressEvent(QKeyEvent *event)
 {
-    #ifndef Q_WS_ANDROID
-            if(wireframe_switch)
-                glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-    #endif
-            //if(!(lastMVP==mvp))
-            {
-                drawer.clearRenderList();
-                project->map.buildRenderList(*camera);
-                lastMVP=mvp;
-            }
-            render(mvp,m_time.elapsed());
-
-
-    #ifndef Q_WS_ANDROID
-            if(wireframe_switch)
-                glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
-    #endif
+    if(event_filter!=NULL) event_filter->eventFilter(this,event);
 }
 
-Matrix4f Canvas::renderShadow(int elapsed)
+void Canvas::keyReleaseEvent(QKeyEvent *event)
 {
-    //TODO RENDER LIST ACCORDING TO LIGHT VIEW POSITION
-    project->map.buildRenderList(*camera);
-
-    Vertex3f dir=project->light.sun.getDirection();
-    dir.inverse();
-
-    Matrix4f view;
-    view.lookAt(dir,Vertex3f(0,0,0),Vertex3f(0,1,0));
-
-    Vertex4f vec[8];
-
-    vec[0].set(0,0,0,1.0f);
-    vec[1].set(project->map.width(),0,0,1.0f);
-    vec[2].set(0,project->map.height(),0,1.0f);
-    vec[3].set(0,0,project->map.depth(),1.0f);
-
-    vec[4].set(project->map.width(),project->map.height(),0,1.0f);
-    vec[5].set(project->map.width(),0,project->map.depth(),1.0f);
-    vec[6].set(0,project->map.height(),project->map.depth(),1.0f);
-    vec[7].set(project->map.width(),project->map.height(),project->map.depth(),1.0f);
-
-    /*
-    vec[0].set(current_camera.ntl[0],current_camera.ntl[1],current_camera.ntl[2],1.0f);
-    vec[1].set(current_camera.ntr[0],current_camera.ntr[1],current_camera.ntr[2],1.0f);
-    vec[2].set(current_camera.nbl[0],current_camera.nbl[1],current_camera.nbl[2],1.0f);
-    vec[3].set(current_camera.nbr[0],current_camera.nbr[1],current_camera.nbr[2],1.0f);
-
-    vec[4].set(current_camera.ftl[0],current_camera.ftl[1],current_camera.ftl[2],1.0f);
-    vec[5].set(current_camera.ftr[0],current_camera.ftr[1],current_camera.ftr[2],1.0f);
-    vec[6].set(current_camera.fbl[0],current_camera.fbl[1],current_camera.fbl[2],1.0f);
-    vec[7].set(current_camera.fbr[0],current_camera.fbr[1],current_camera.fbr[2],1.0f);
-*/
-
-    Vertex4f tmp=view*vec[0];
-    Vertex3f min(tmp[0],tmp[1],tmp[2]),max(tmp[0],tmp[1],tmp[2]);
-
-    for(int i=1;i<8;i++)
-    {
-        tmp=view*vec[i];
-
-        if (tmp[0] > max[0])
-            max[0] = tmp[0];
-        else if (tmp[0] < min[0])
-            min[0] = tmp[0];
-
-        if (tmp[1] > max[1])
-            max[1] = tmp[1];
-        else if (tmp[1] < min[1])
-            min[1] = tmp[1];
-
-        if (tmp[2] > max[2])
-            max[2] = tmp[2];
-        else if (tmp[2] < min[2])
-            min[2] = tmp[2];
-    }
-
-    Matrix4f proj;
-    proj.ortho(min[0],max[0],min[1],max[1], -max[2], -min[2]);
-
-    proj.transpose();
-    view.transpose();
-
-    Matrix4f mvp=view*proj;
-
-    drawer.renderShadow(mvp,elapsed);
-    drawer.clearRenderList();
-
-    return mvp;
+    if(event_filter!=NULL) event_filter->eventFilter(this,event);
 }
 
-bool Canvas::loadMapBox()
+/*
+bool Canvas::event(QEvent *event)
 {
-    setlocale(LC_NUMERIC, "C");
-
-    const char * vertex_src =
-            "uniform mat4 mvp;\n"
-            "uniform vec4 pos;\n"
-            "uniform vec4 size;\n"
-            "varying vec4 coord;\n"
-            "attribute vec3 coord3d;\n"
-            "void main(void) {\n"
-            "   coord=vec4(coord3d,1.0)*size+pos;\n"
-            "   gl_Position = mvp * coord;\n"
-            "}\n";
-
-
-    const char * fragment_src =
-            "varying vec4 coord;\n"
-            "vec4 encode (vec3 n)\n"
-            "{\n"
-            "    float p = sqrt(n.z*8.0+8.0);\n"
-            "    return vec4(n.xy/p + 0.5,0.0,1.0);\n"
-            "}\n"
-            "void main(void) {\n"
-            "   gl_FragData[0] = vec4(1.0,1.0,1.0, 1.0);\n"
-            "   gl_FragData[1] = encode(normalize(vec3(1.0,1.0,1.0)));\n"
-            "   gl_FragData[2] = coord;\n"
-            "}\n";
-
-    if(!program.load(vertex_src,fragment_src))
+    std::cout<<"evet "<<event->type()<<std::endl;
+    if(event_filter==NULL)
         return false;
+    return event_filter->eventFilter(this,event);
+}*/
 
-    if((uniform_mvp = program.getUniform("mvp"))==-1)
-        return false;
 
-    if((uniform_pos = program.getUniform("pos"))==-1)
-        return false;
-
-    if((uniform_size = program.getUniform("size"))==-1)
-        return false;
-
-    if((attribute_coord3d = program.getAttribute("coord3d"))==-1)
-        return false;
-
-    // Restore system locale
-    setlocale(LC_ALL, "");
-
-    //box shape
-    GLfloat * cube_verts;
-    Cube::verticesLines(cube_verts,cube_num);
-
-    glGenBuffers(1, &vbo_cube);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_cube);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat)*cube_num, cube_verts, GL_STATIC_DRAW);
-
-    delete [] cube_verts;
-
-    return true;
-}
-
-void Canvas::renderBox(const Matrix4f &mvp)
+void Canvas::installEventFilter(QObject *object)
 {
-    program.bind();
-    program.uniformMatrix(uniform_mvp,mvp);
-    program.uniform(uniform_pos,project->map.width()/2.0f
-                    ,project->map.height()/2.0f,project->map.depth()/2.0f,0.0f);
-    program.uniform(uniform_size,project->map.width(),project->map.height(),project->map.depth(),1.0f);
-    glEnableVertexAttribArray(attribute_coord3d);
-
-    glBindBuffer(GL_ARRAY_BUFFER, vbo_cube);
-    glVertexAttribPointer(attribute_coord3d, 3, GL_FLOAT, GL_FALSE, 0, 0);
-    glDrawArrays(GL_LINES,0,cube_num);
-
-    glDisableVertexAttribArray(attribute_coord3d);
-    program.unbind();
+    event_filter=object;
 }
 
+int Canvas::fps() const
+{
+    return m_fps;
+}
 
-#undef SPEED_TEST
+void Canvas::resize()
+{
+    int w=width();
+    int h=height();
+    if(renderer!=NULL)
+        renderer->resize(w ,h);
+    emit resized(w, h);
+    _resized=true;
+}

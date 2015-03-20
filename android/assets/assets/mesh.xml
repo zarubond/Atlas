@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<meshes>
+  <mesh>
+    <file>mesh/palm_tree/palm_tree.obj</file>
+    <preview>mesh/palm_tree/preview.jpg</preview>
+    <name>Palm Tree</name>
+    <type>Tree</type>
+    <author>Nobiax</author>
+    <licence>WTFPL</licence>
+    <source>http://nobiax.deviantart.com/</source>
+  </mesh>
+</meshes>
+ 

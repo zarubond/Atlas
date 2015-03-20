@@ -1,0 +1,25 @@
+mkdir atlas-0.4.2
+cd atlas-0.4.2
+dh_make -s  -e service@zarubond.com --createorig
+
+add to rules "
+
+#!/usr/bin/make -f
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/qmake.mk
+
+#QMAKE = /opt/qt4-maemo5/bin/qmake
+
+DEB_BUILDDIR = debian/builddeb
+DEB_QMAKE_ARGS = $(CURDIR)/debian/source/Atlas.pro -r PREFIX=/usr
+
+"
+
+add source code to /debian/source
+
+RUN dpkg-buildpackage
+
+
+http://xpressrazor.wordpress.com/2013/05/09/creating-ubuntu-packages/
+http://wiki.maemo.org/Packaging_a_Qt_application

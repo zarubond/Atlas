@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+    <header>
+        <name>Sample Island</name>
+        <author>Ondřej Záruba</author>
+        <snapshot></snapshot>
+        <info></info>
+        <width>256</width>
+        <height>256</height>
+        <depth>256</depth>
+    </header>
+    <environment>
+        <sun>
+            <ambient>0.298039/0.298039/0.298039</ambient>
+            <direction>0.457496/-0.762493/0.457496</direction>
+            <specular>0.298039/0.298039/0.298039</specular>
+            <shininess>7</shininess>
+        </sun>
+        <fog>
+            <density>0</density>
+            <color>0/0/0</color>
+        </fog>
+    </environment>
+    <terrain>
+        <materials>
+            <material id="0">
+                <name>Pattern 45</name>
+                <texture>terrain/texture0.png</texture>
+                <normalmap>terrain/texture0-normal.png</normalmap>
+            </material>
+            <material id="1">
+                <name>Pattern 44</name>
+                <texture>terrain/texture1.png</texture>
+                <normalmap>terrain/texture1-normal.png</normalmap>
+            </material>
+            <material id="2">
+                <name>Pattern 78</name>
+                <texture>terrain/texture2.png</texture>
+                <normalmap>terrain/texture2-normal.png</normalmap>
+            </material>
+        </materials>
+        <voxelmap>terrain/terrain.bin</voxelmap>
+    </terrain>
+    <model>
+        <meshes>
+            <mesh name="palm_tree" id="0">model/palm_tree/palm_tree.obj</mesh>
+        </meshes>
+        <file>model/model.bin</file>
+    </model>
+    <water>
+        <ocean>
+            <color>0/0.447059/0.494118/0.1</color>
+            <sealevel>32</sealevel>
+        </ocean>
+    </water>
+</project>

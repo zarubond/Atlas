@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,9 +17,9 @@
 #ifndef PLAYER_H
 #define PLAYER_H
 
-#include "../tools/moveable.h"
-#include "../tools/camera.h"
-#include "../project/project.h"
+#include "../lib/tools/moveable.h"
+#include "../lib/tools/camera.h"
+#include "../project.h"
 
 /**
  * @brief The Player class
@@ -34,13 +34,11 @@ public:
     void loadGL();
 
     void update(int elapsed);
-    void updateGL(int elapsed);
 
-    float height();
+    float height() const;
     Camera *getCamera();
-
-
-    void setPosition(const Vertex3f &value);
+    const Camera &getCamera() const;
+    void setPosition(const Vector3f &value);
     void setRotation(const Quaternion &value);
 private:
     Camera camera;

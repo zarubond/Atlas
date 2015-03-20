@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,54 +14,72 @@
  *  along with this program; if not, write to the Free Software Foundation,
  *  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
-#include <QApplication>
-#include <QStyleFactory>
+
+#include <QtCore>
+
+#if (defined(Q_OS_LINUX) || defined(Q_OS_WINDOWS)) && !(defined(Q_OS_ANDROID) || defined(Q_OS_SAILFISH))
+    #include <QApplication>
+    #include <QStyleFactory>
+#else
+    #include <QGuiApplication>
+#endif
+
+#include <QPalette>
+
 #include "atlas.h"
 
-bool expiration()
-{
-    QDate date=QLocale(QLocale::C).toDate(QString(__DATE__).simplified(), QLatin1String("MMM d yyyy"));;
-    QDate today=QDate::currentDate ();
+//http://qt-project.org/wiki/How_to_do_dynamic_translation_in_QML
 
-    if(date.daysTo(today) > 3)
-    {
-        QMessageBox messageBox;
-        messageBox.critical(0,"Error","Your trial period has expired! Please download newer version.");
-        return false;
-    }
-
-    return true;
-}
 /**
  * @brief main
  * @param argc
  * @param argv
- * @copyright Copyright 2012-2013 Ondrej Zaruba. All rights reserved.
- * @license This project is released under the GNU Public License.
+ * @copyright Copyright 2012-2014 Ondrej Zaruba. All rights reserved.
  * @return
  */
+
 int main(int argc, char *argv[])
 {
+
+#if (defined(Q_OS_LINUX) || defined(Q_OS_WINDOWS)) && !(defined(Q_OS_ANDROID) || defined(Q_OS_SAILFISH))
+
     QApplication app(argc, argv);
+    QPalette palette=app.palette();
+    palette.setColor(QPalette::Window,QColor(89,89,89));
+    palette.setColor(QPalette::WindowText,Qt::white);
+    palette.setColor(QPalette::Base,QColor(107,107,107));
+    palette.setColor(QPalette::AlternateBase,QColor(100,100,100));
+    palette.setColor(QPalette::ToolTipBase,Qt::white);
+    palette.setColor(QPalette::ToolTipText,Qt::white);
+    palette.setColor(QPalette::Text,Qt::white);
+    palette.setColor(QPalette::Button,QColor(68,68,68));
+    palette.setColor(QPalette::ButtonText,Qt::white);
+    palette.setColor(QPalette::BrightText,Qt::white);
+    //other
+    /*
+    palette.setColor(QPalette::Light,Qt::green);
+    palette.setColor(QPalette::Midlight,Qt::green);
+    palette.setColor(QPalette::Dark,Qt::green);
+    palette.setColor(QPalette::Mid,Qt::green);
+    palette.setColor(QPalette::Shadow,Qt::green);
+*/
+    palette.setColor(QPalette::Highlight,Qt::darkBlue);
+    palette.setColor(QPalette::HighlightedText,Qt::white);
+    palette.setColor(QPalette::Link,Qt::blue);
+    palette.setColor(QPalette::LinkVisited,Qt::magenta);
+
+    app.setPalette(palette);
+#else
+    QGuiApplication app(argc, argv);
+#endif
+
     app.setOrganizationName("Zarubond");
     app.setApplicationName("Atlas");
-/*
-    QApplication::setStyle(QStyleFactory::create("Fusion"));
-    QPalette p;
-    p = app.palette();
-    p.setColor(QPalette::Window, QColor(53,53,53));
-    p.setColor(QPalette::Button, QColor(53,53,53));
-    p.setColor(QPalette::Highlight, QColor(142,45,197));
-    p.setColor(QPalette::ButtonText, QColor(255,255,255));
-    app.setPalette(p);
-*/
-    Atlas w;
-   // if(expiration())
-    {
-        w.show();
-        w.activateWindow();
-        return app.exec();
-    }
+    app.setOrganizationDomain("zarubond.com");
+    app.setApplicationVersion("0.5.2");
 
-    return 0;
+    Atlas starter;
+    starter.start();
+
+    return app.exec();
 }

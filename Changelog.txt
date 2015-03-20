@@ -1,0 +1,16 @@
+Atlas 0.5.2
+-Model scale manipulator
+-Better model parameter editiong
+-Fix renreding problems with OpenGL ES 2.0 depth buffer
+-Fix project loading on non english OS
+
+Atlas 0.5
+
+-Android UI design
+-Basic support for Sailfish OS
+-Fixed Vr rendering
+-Enhanced model manipulation
+-Project save related problems
+-Reworked UI
+-Various fixes and stabilization
+-Window installer

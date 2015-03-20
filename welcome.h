@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,38 +17,45 @@
 #ifndef WELCOME_H
 #define WELCOME_H
 
-#include <QWidget>
-#include <QSettings>
-#include <QButtonGroup>
-#include <QPushButton>
+#include <QObject>
+#include <QStringList>
+#include  <QStandardItemModel>
+#include <QQuickItem>
 
-namespace Ui {
-class Welcome;
-}
-class Atlas;
-class Welcome : public QWidget
+class Window;
+class Welcome : public QQuickItem
 {
     Q_OBJECT
+    Q_PROPERTY(QStandardItemModel* projectModel READ projectModel WRITE setProjectModel NOTIFY projectModelChanged)
     
 public:
-    explicit Welcome(QWidget *parent = 0);
+    explicit Welcome(QQuickItem *parent = 0);
     ~Welcome();
     /**
      * @brief load Load welcom screen.
      * @param atlas
      */
-    void load(Atlas * atlas);
+    void load(Window * atlas);
+    QStandardItemModel* projectModel() const;
+
+public slots:
+    void setProjectModel(QStandardItemModel* arg);
+    void openProject(int index);
+signals:
+    void projectModelChanged();
+
 private slots:
 
-    void on_push_OpenProject_clicked();
-    void on_push_NewProject_clicked();
-    void openRecentProject();
-
+    void reloadRecentProjects();
 private:
-    Ui::Welcome *ui;
-    QPushButton * buttons[5];
-    QStringList files;
-    Atlas * atlas;
+
+    enum ModelRoles {
+        TitleRole = Qt::UserRole + 1,
+        PathRole
+    };
+
+    Window * atlas;
+    QStandardItemModel* m_projectModel;
 };
 
 #endif // WELCOME_H

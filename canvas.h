@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,163 +14,109 @@
  *  along with this program; if not, write to the Free Software Foundation,
  *  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
-#ifndef SPACE_H
-#define SPACE_H
+#ifndef CANVAS_H
+#define CANVAS_H
 
-#include <QGLWidget>
-#include <QApplication>
-
-#include <QTimer>
+#include <QQuickView>
+#include <QQuickItem>
+#include <QGuiApplication>
+#include <QPalette>
+#include <QPainter>
+#include <QSGSimpleTextureNode>
+#include <QOpenGLFramebufferObject>
 #include <QTime>
-#include <QLCDNumber>
-#include <QShortcut>
+#include <QMutex>
 
-#include <QBasicTimer>
-#include <QMouseEvent>
-#include <QDebug>
+#include "gamepad/gamepadevent.h"
 
-#include <math.h>
-#include <locale.h>
+#include "./lib/render/scenerender.h"
+#include "./lib/render/scenerendererdeferred.h"
+#include "./lib/render/scenerendererforward.h"
+#include "./lib/graphics/opengl.h"
+#include "./lib/tools/camera.h"
+#include "./lib/tools/image.h"
+#include "./lib/worldgraphics.h"
 
-#include "tools/graphics.h"
-#include "tools/math/math.h"
-#include "editor/navigator.h"
-#include "project/project.h"
 
-#include "world/mapdrawer.h"
-#include "editor/player.h"
-
-#include "world/module/skybox/skybox.h"
-
-#ifndef OPENGL_ES
-#include "postprocess.h"
-#endif
-/**
- * @brief The Canvas class is place for drawing.
- */
-class Canvas : public QGLWidget
+//http://horde3d.org/wiki/index.php5?title=Tutorial_-_Setup_Horde_with_Qt5_%26_QtQuick_2.1
+//http://stackoverflow.com/questions/20606732/give-subclass-of-qquickitem-pointer-to-another-c-object
+//http://stackoverflow.com/questions/19455518/periodically-redraw-qquickitem
+//http://qt-project.org/doc/qt-5/qtquick-scenegraph-openglunderqml-example.html
+class Canvas : public QQuickItem,OpenGL
 {
-     Q_OBJECT
+    Q_OBJECT
+    Q_PROPERTY(int fps READ fps  NOTIFY fpsChanged)
 public:
-    explicit Canvas(QWidget *parent = 0);
-    virtual ~Canvas();
-    /**
-     * @brief init Initialize all required things.
-     * @return
-     */
-    bool init();
-    /**
-     * @brief setNavigator Set navigator hand.
-     * @param navig
-     */
-    void setNavigator(Navigator * navig);
-    /**
-     * @brief setProject Set used project.
-     * @param project
-     */
-    void setProject(Project * project);
+    explicit Canvas(QQuickItem *parent = 0);
+    ~Canvas();
 
-    GLfloat getDepth(unsigned x, unsigned y);
-    /**
-     * @brief showWireframe Switch wireframe
-     * @param wireframe
-     */
-    void showWireframe(bool wireframe);
-    /**
-     * @brief showLights Switch lights
-     * @param lights
-     */
-    void showLights(bool lights);
-    /**
-     * @brief showShadows Switch shadows
-     * @param shadows
-     */
-    void showShadows(bool shadows);
-    /**
-     * @brief isShadows Are shadown on?
-     * @return
-     */
-    bool isShadows();
-    /**
-     * @brief fps Number of frames rendered in second.
-     * @return
-     */
-    int fps();
-    /**
-     * @brief isWireframe Is wireframe visible?
-     * @return
-     */
-    bool isWireframe();
-    /**
-     * @brief isLights
-     * @return
-     */
-    bool isLights();
-    /**
-     * @brief capture Capture mouse to the space.
-     */
+    void timerEvent(QTimerEvent* evt);
+    const Camera *getCamera() const;
+    void setCamera(const Camera &value);
+    void setWorld(WorldGraphics * world);
+
     void captureMouse();
-    /**
-     * @brief release Release mouse from space.
-     */
-    void releaseMouse();
-    /**
-     * @brief isCaptured Is mouse captered?
-     * @return
-     */
     bool isCaptured();
+    void releaseMouse();
+    //this is HACK to compensate for https://bugreports.qt-project.org/browse/QTBUG-32004
+    void wheelEvent(QWheelEvent * event);
+    void mouseMoveEvent(QMouseEvent *event);
+    void mousePressEvent(QMouseEvent *event);
+    void mouseReleaseEvent(QMouseEvent *event);
+    void mouseDoubleClickEvent(QMouseEvent * event);
+    void hoverMoveEvent(QHoverEvent *event);
+    void keyPressEvent(QKeyEvent *event);
+    void keyReleaseEvent(QKeyEvent * event);
+    void installEventFilter(QObject * object);
 
-    MapDrawer drawer;
+    int fps() const;
 
-    Camera *getCamera() const;
-    void setCamera(Camera *value);
+    void makeSnapshot();
+    QSGNode *updatePaintNode(QSGNode *node, UpdatePaintNodeData *);
+    /**
+     * @brief showVR this switch will enable vr projection, tj. will project one image pro each eye side by side.
+     * @param enable
+     */
+    void renderVr(bool enable);
 
-protected:
-    void initializeGL();
-    void resizeGL(int w, int h);
-    void paintGL();
 
+signals:
+    void fpsChanged(int);
+    void resized(int w, int h);
+    void screenShotDone(Image * img);
+
+private slots:
+    void resize();
+    void cleanup();
+    void visibleChanged();
 private:
+    void updateFps();
+    void createScreenShot();
+    void createFrameBuffer();
 
-    Camera * camera;
-    Project * project;
-    SkyBox skybox;
+    SceneRender * renderer;
+    int m_timerID;
+    int m_fps;
+    int fps_cnt;
+    bool init;
+    bool _resized;
+    float w,h;
 
-    void render(const Matrix4f &mvp, int elapsed);
-    void renderScene(const Matrix4f &mvp);
-    //to be http://organicvectory.com/index.php?option=com_content&view=article&id=54
-    Matrix4f renderShadow(int elapsed);
-    bool loadMapBox();
-    void renderBox(const Matrix4f & mvp);
-
-    //wireframe map visualization
-    bool wireframe_switch;
+    Camera camera;
     bool mouse_grab;
-    //fps counter
-    QTime m_time;
+    bool make_screen_shot;
+    bool render_vr;
 
-    Navigator * navig;
+    GLuint depth_rb;
 
-#ifndef OPENGL_ES
-    PostProcess postpro;
-#endif
-    Matrix4f lastMVP;
-    int frame_count;
-    int fps_count;
-    int time_sec;
-    int ls2;
+    QObject * event_filter;
+    QMutex mutex;
+    QTime time;
+    int last_time;
+    QOpenGLFramebufferObject* m_fbo;
+    QSGTexture * texture;
+    WorldGraphics *world;
 
-    bool post_poscessing;
-    bool render_shadow;
-    bool init_gl;
-
-    //BOX
-    Shader program;
-    GLint uniform_mvp,uniform_pos,uniform_size;
-    GLint attribute_coord3d;
-    GLuint vbo_vertices,vbo_cube;
-    int triangle_num,cube_num;
 };
 
-
-#endif // SPACE_H
+#endif // CANVAS_H

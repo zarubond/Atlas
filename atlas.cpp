@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -14,381 +14,195 @@
  *  along with this program; if not, write to the Free Software Foundation,
  *  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
+
 #include "atlas.h"
-#include "ui_atlas.h"
 
-Atlas::Atlas(QWidget *parent) :
-    QMainWindow(parent),
-    ui(new Ui::Atlas)
+Atlas::Atlas(QObject *parent) :
+    QObject(parent),component(NULL)
 {
-    space=new Canvas(this);
-    welcome=new Welcome(this);
+    component = new QQmlComponent(&engine);
+    qmlRegisterType<Canvas> ("Atlas", 1, 0, "Canvas");
+    qmlRegisterType<Window>  ("Atlas", 1, 0, "Atlas");
+    qmlRegisterType<Dialog> ("Atlas", 1, 0, "Dialog");
+    qmlRegisterType<Project>("Atlas", 1, 0, "Project");
+    //dialogs
+    qmlRegisterType<NewProjectDialog>   ("Atlas",1,0,"NewProjectDialog");
+    qmlRegisterType<EnvironmentDialog>  ("Atlas",1,0,"EnvironmentDialog");
+    qmlRegisterType<OptionsDialog>      ("Atlas",1,0,"OptionsDialog");
+    qmlRegisterType<ProjectDialog>      ("Atlas",1,0,"ProjectDialog");
+    //tools
+    qmlRegisterType<TerrainMaterialDialog>  ("Atlas",1,0,"TerrainMaterialDialog");
+    qmlRegisterType<TerrainProceduralDialog>("Atlas",1,0,"TerrainProceduralDialog");
+    qmlRegisterType<TerrainImportDialog>    ("Atlas",1,0,"TerrainImportDialog");
+    qmlRegisterType<TerrainControl>           ("Atlas",1,0,"TerrainControl");
 
-    ui->setupUi(this);
-    ui->statusBar->hide();
+    qmlRegisterType<VegetationTool>         ("Atlas",1,0,"VegetationTool");
 
-    ui->screen->addWidget(space);
-    ui->screen->addWidget(welcome);
-    ui->screen->setCurrentWidget(welcome);
+    qmlRegisterType<ModelControl>           ("Atlas",1,0,"ModelControl");
+    qmlRegisterType<ModelDataModel>         ("Atlas",1,0,"ModelDataModel");
+    qmlRegisterType<MeshDataModel>          ("Atlas",1,0,"MeshDataModel");
+    qmlRegisterType<ModelEditDialog>        ("Atlas",1,0,"ModelEditDialog");
 
-    on_toolTab_currentChanged(ui->toolTab->currentIndex());
+    //assets
+    qmlRegisterType<AssetTextureDialog> ("Atlas", 1, 0, "AssetTextureDialog");
+    qmlRegisterType<AssetMeshDialog>    ("Atlas", 1, 0, "AssetMeshDialog");
+    //other
+    qmlRegisterType<QStandardItemModel>();
+    qmlRegisterType<ImageProvider>  ("Atlas", 1, 0, "ImageProvider");
+    qmlRegisterType<Workspace>      ("Atlas", 1, 0, "Workspace");
+    qmlRegisterType<Welcome>        ("Atlas", 1, 0, "Welcome");
+    qmlRegisterType<ProjectLoader>  ("Atlas", 1, 0, "ProjectLoader");
 
-    connect(ui->actionSave_All,SIGNAL(triggered()),this,SLOT(action_SaveAll()));
-    ui->actionSave_All->setShortcut(QKeySequence::Save);
-    connect(ui->actionHelp,SIGNAL(triggered()),this,SLOT(action_help()));
-    ui->actionHelp->setShortcut(QKeySequence::HelpContents);
-    connect(ui->actionOpen_Project,SIGNAL(triggered(bool)),this,SLOT(openProjectDialog(bool)));
-    ui->actionOpen_Project->setShortcut(QKeySequence::Open);
-    connect(ui->actionNew_Project,SIGNAL(triggered(bool)),this,SLOT(newProjectDialog(bool)));
-    ui->actionNew_Project->setShortcut(QKeySequence::New);
-    connect(ui->actionExport,SIGNAL(triggered()),this,SLOT(action_map_export()));
 
-    connect(ui->actionUndo,SIGNAL(triggered()),this,SLOT(action_Undo()));
-    ui->actionUndo->setShortcut(QKeySequence::Undo);
-    connect(ui->actionRedo,SIGNAL(triggered()),this,SLOT(action_Redo()));
-    ui->actionRedo->setShortcut(QKeySequence::Redo);
-
-    connect(ui->actionClose_Project,SIGNAL(triggered()),this,SLOT(action_CloseProject()));
-    ui->actionClose_Project->setShortcut(QKeySequence::Close);
-    connect(ui->actionWireframe,SIGNAL(toggled(bool)),this,SLOT(action_Wireframe(bool)));
-    ui->actionWireframe->setShortcut(Qt::Key_F2);
-    connect(ui->actionLight,SIGNAL(toggled(bool)),this,SLOT(action_Light(bool)));
-    ui->actionLight->setShortcut(Qt::Key_F3);
-    connect(ui->actionShadow,SIGNAL(toggled(bool)),this,SLOT(action_Shadow(bool)));
-    ui->actionShadow->setShortcut(Qt::Key_F4);
-    connect(ui->actionFullscreen,SIGNAL(toggled(bool)),this,SLOT(action_Fullscreen(bool)));
-    ui->actionFullscreen->setShortcut(Qt::Key_F11);
-    connect(ui->actionQuit,SIGNAL(triggered()),this,SLOT(action_Quit()));
-    ui->actionQuit->setShortcut(QKeySequence::Quit);
-
-    connect(ui->actionConfigure,SIGNAL(triggered()),this,SLOT(action_Configure()));
-
-    connect(ui->actionSun,SIGNAL(triggered()),this,SLOT(action_Sun()));
-
-    connect(ui->actionAssets,SIGNAL(triggered()),this,SLOT(action_Assets()));
-
-    time.start();
-    running=false;
-
-    QTimer::singleShot(100,this,SLOT(init()));
+    QObject::connect(&engine, SIGNAL(quit()), QCoreApplication::instance(), SLOT(quit()));
+    logger = new QOpenGLDebugLogger(this);
+    connect(logger, &QOpenGLDebugLogger::messageLogged, this, &Atlas::handleLoggedMessage);
+    atlas=NULL;
+    topLevel=NULL;
+    window=NULL;
+    settings.load();
 }
 
 Atlas::~Atlas()
 {
-    delete ui;
+    settings.save();
+    delete component;
+    delete topLevel;
+
+    main_context->doneCurrent();
+    delete main_context;
+    main_context=NULL;
+    fake_surface->destroy();
+    delete fake_surface;
+    fake_surface=NULL;
 }
 
-bool Atlas::init()
+bool Atlas::start()
 {
-    space->init();
-    editor.init(space);
-    session.setup(space,&editor);
+    component->loadUrl(QUrl(QStringLiteral("qrc:/qml/atlas.qml")));
 
-    if(session.isLoaded())
-    {
-        running=true;
-    }
-    else
-    {
-        ui->actionClose_Project->setDisabled(true);
-        showWelcome();
-        stop();
+    if (!component->isReady() ) {
+        qWarning("%s", qPrintable(component->errorString()));
+        return false;
     }
 
-    reloadRecentProject();
-    for(int i=0;i<editor.toolCount();i++)
+    topLevel = component->create();
+    window = qobject_cast<QQuickWindow*>(topLevel);
+    connect(window,SIGNAL(sceneGraphInitialized()),this,SLOT(initGL()),Qt::DirectConnection);
+    connect(window,SIGNAL(closing(QQuickCloseEvent*)),this,SLOT(close(QQuickCloseEvent*)));
+
+    QSurfaceFormat fmt = window->requestedFormat();
+
+    fmt.setDepthBufferSize(24);
+#if defined(OS_LINUX) || defined(OS_WINDOWS)
+    if(GlobalSettings::instance()->renderBackend()==GlobalSettings::OPENGL30)
     {
-        QMenu * menu=editor.getTool(i)->createMenu();
-        if(menu!=NULL)
-            ui->menuTools->addMenu(menu);
-        ui->toolTab->insertTab(i,editor.getTool(i),editor.getTool(i)->getName());
-    }
-
-#ifdef Q_WS_ANDROID
-   /* session.openProject("/storage/sdcard1/android/android.apro");
-
-    showSpace();
-    run();*/
-
+#ifdef OPENGL_DEBUG
+        fmt.setOption(QSurfaceFormat::DebugContext);
 #endif
+        fmt.setRenderableType(QSurfaceFormat::OpenGL);
+       // fmt.setVersion(3,0); This makes crash with glyphs under qt 5.3.1 and shader compilation error under 5.2
+        fmt.setProfile(QSurfaceFormat::CoreProfile);
+    }
+    else if(GlobalSettings::instance()->renderBackend()==GlobalSettings::OPENGLES20 || GlobalSettings::instance()->renderBackend()==GlobalSettings::OPENGLES30)
+    {
+        fmt.setRenderableType(QSurfaceFormat::OpenGLES);
+    }
+#else
+    fmt.setRenderableType(QSurfaceFormat::OpenGLES);
+#endif
+
+    window->setFormat(fmt);
+
+    main_context=new QOpenGLContext;
+    fake_surface=new QOffscreenSurface;
+
+    window->show();
 
     return true;
 }
 
-void Atlas::newProjectDialog(bool)
+bool Atlas::expired()
 {
-    DialogNewProject new_project(this,&session);
-    new_project.exec();
-    if(session.isLoaded())
-    {
-        ui->actionClose_Project->setText(tr("Close Project ")+"\""+session.project->name+"\"");
-        ui->actionClose_Project->setEnabled(true);
-        reloadRecentProject();
+    QDate date=QLocale(QLocale::C).toDate(QString(__DATE__).simplified(), QLatin1String("MMM d yyyy"));;
+    QDate today=QDate::currentDate ();
 
-        showSpace();
-        run();
+    if(date.daysTo(today) > 3)
+    {
+        //QMessageBox messageBox;
+        //messageBox.critical(0,"Error","Your trial period has expired! Please download newer version.");
+        return false;
     }
+
+    return true;
 }
 
-void Atlas::openProjectDialog(bool)
+void Atlas::initGL()
 {
-    QString file_name = QFileDialog::getOpenFileName(this, tr("Open Project"),
-                                                     "", tr("Files (*.apro)"));
-
-    openProject(file_name);
-}
-
-void Atlas::updatePosition()
-{
-    const Vertex3f & pos=space->getCamera()->getPosition();
-    ui->position_x->setValue(pos[0]);
-    ui->position_y->setValue(pos[1]);
-    ui->position_z->setValue(pos[2]);
-}
-
-void Atlas::run()
-{
-    running=true;
-    while(running)
+    OpenGL::OpenGLVersion ver=OpenGL::OPENGL_ES_2_0;
+    switch(settings.renderBackend())
     {
-        editor.update(time.elapsed());
-        space->updateGL();
-        ui->fps_counter->display(space->fps());
-        updatePosition();
-
-        QCoreApplication::processEvents(QEventLoop::ProcessEventsFlags());
-    }
-}
-
-void Atlas::stop()
-{
-    running=false;
-}
-
-void Atlas::showWelcome()
-{
-    ui->toolTab->setEnabled(false);
-    ui->screen->setCurrentWidget(welcome);
-    welcome->load(this);
-
-    ui->fps_counter->display(0);
-}
-
-void Atlas::showSpace()
-{
-    ui->toolTab->setEnabled(true);
-    ui->screen->setCurrentWidget(space);
-}
-
-void Atlas::reloadRecentProject()
-{
-    QStringList files = settings.getStringList("recentFileList");
-    settings.setValue("recentFileList", files);
-    QMenu * menu=new QMenu(this);
-    for(int i=0;i<files.size();i++)
-    {
-        QString text = tr("&%1. %2").arg(i + 1).arg(files[i]);
-        QAction * action=new QAction(text,this);
-        action->setVisible(true);
-        connect(action, SIGNAL(triggered()),
-                this, SLOT(action_OpenRecentProject()));
-        action->setData(files[i]);
-        menu->addAction(action);
-    }
-    ui->actionRecent_Projects->setMenu(menu);
-}
-
-void Atlas::keyPressEvent(QKeyEvent *key)
-{
-    switch(key->key())
-    {
-    default:
-        editor.keyPressEvent(key);
+    case GlobalSettings::OPENGL30:
+        ver=OpenGL::OPENGL_3_0;
+        break;
+    case GlobalSettings::OPENGLES20:
+        ver=OpenGL::OPENGL_ES_2_0;
+        break;
+    case GlobalSettings::OPENGLES30:
+        ver=OpenGL::OPENGL_ES_3_0;
         break;
     }
-}
 
-void Atlas::keyReleaseEvent(QKeyEvent *key)
-{
-    editor.keyReleaseEvent(key);
-}
+    OpenGL::glInit(window->openglContext(), ver);
 
-void Atlas::closeEvent(QCloseEvent *)
-{
-    running=false;
-}
-
-bool Atlas::openProject(const QString &file_name)
-{
-    if(session.openProject(file_name))
+#ifdef OPENGL_DEBUG
+    if(OpenGL::glVersion()==OpenGL::OPENGL_3_0)
     {
-        ui->actionClose_Project->setText(tr("Close Project ")+"\""+session.project->name+"\"");
-        ui->actionClose_Project->setEnabled(true);
-        ui->actionSun->setEnabled(true);
-        reloadRecentProject();
-
-        showSpace();
-        run();
-        return true;
+        logger->initialize();
+        logger->startLogging();
     }
-    return false;
+#endif
+
+    QTimer::singleShot(100,this,SLOT(init()));
+    main_context->setShareContext(window->openglContext());
+    startTimer(500);
 }
 
-void Atlas::action_SaveAll()
+void Atlas::close(QQuickCloseEvent *)
 {
-    std::cout<<"map save"<<std::endl;
-    session.saveProject();
-    std::cout<<"map saved"<<std::endl;
+
 }
 
-void Atlas::action_map_export()
+void Atlas::init()
 {
-    QString dir = QFileDialog::getExistingDirectory(this, tr("Export Directory"),
-                                                "~",
-                                                QFileDialog::ShowDirsOnly
-                                                | QFileDialog::DontResolveSymlinks);
-    //session.project->exportMap(dir);
-    if(session.project!=NULL)
+    main_context->create();
+
+    fake_surface->create();
+    main_context->makeCurrent(fake_surface);
+    if(!settings.assetsPath().isEmpty())
     {
-        ProjectHandler exp;
-        //exp.exportProject(dir);
-    }
-}
+        QString file;
+        if(settings.assetsPath().isLocalFile())
+            file=settings.assetsPath().toLocalFile();
+        else
+            file=settings.assetsPath().toString();
 
-void Atlas::action_Sun()
-{
-    DialogSun * dialog =new DialogSun(&session.project->light,this);
-    dialog->show();
-}
-
-void Atlas::action_help()
-{
-    QMessageBox::about(this, tr("Atlas help"),
-            tr("<center>How to</center>"
-               "Moving WSAD<br>"
-               "Navigator distance wheel<br>"
-               "Move up-f down-c<br>"
-               "Hand size ctrl+wheel<br>"
-               "Speed alt+wheel<br>"
-               "Undo ctrl+z<br>"
-               "If you want to know more please read help!"));
-}
-
-void Atlas::action_Undo()
-{
-    editor.undo();
-}
-
-void Atlas::action_Redo()
-{
-    editor.redo();
-}
-
-void Atlas::action_Quit()
-{
-    if(session.isLoaded())
-    {
-        QMessageBox msgBox;
-        msgBox.setText(tr("Close without saving."));
-        msgBox.setInformativeText("Would you like to save project?");
-        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-        msgBox.setDefaultButton(QMessageBox::Yes);
-        int ret = msgBox.exec();
-        if(ret==QMessageBox::Yes)
+        if(file.isEmpty() || !assets.load(file))
         {
-            action_SaveAll();
+            cerr<<"Unable to load assets"<<endl;
         }
     }
-
-    exit(0);
+    //engine.rootContext()->setContextProperty("settings",&settings);
+    atlas=qvariant_cast<Window*>(window->property("atlas"));
+    atlas->init(window, main_context, &assets);
 }
 
-void Atlas::action_CloseProject()
+void Atlas::timerEvent(QTimerEvent *)
+{///some kind of bug in QT??? HACK
+    main_context->makeCurrent(fake_surface);
+}
+
+void Atlas::handleLoggedMessage(const QOpenGLDebugMessage &debugMessage)
 {
-    if(session.isLoaded())
-    {
-        QMessageBox msgBox;
-        msgBox.setText(tr("Close without saving."));
-        msgBox.setInformativeText("Would you like to save project?");
-        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-        msgBox.setDefaultButton(QMessageBox::Yes);
-        int ret = msgBox.exec();
-        if(ret==QMessageBox::Yes)
-        {
-            action_SaveAll();
-        }
-    }
-
-    if(session.closeProject())
-    {
-        ui->actionClose_Project->setDisabled(true);
-        ui->actionSun->setDisabled(true);
-        showWelcome();
-        stop();
-    }
-}
-
-void Atlas::action_OpenRecentProject()
-{
-    QAction *action = qobject_cast<QAction *>(sender());
-    if (action)
-    {
-        openProject(action->data().toString());
-    }
-}
-
-void Atlas::action_Wireframe(bool checked)
-{
-    space->showWireframe(checked);
-}
-
-void Atlas::action_Light(bool checked)
-{
-    space->showLights(checked);
-}
-
-void Atlas::action_Shadow(bool checked)
-{
-    space->showShadows(checked);
-}
-
-void Atlas::action_Fullscreen(bool checked)
-{
-    if(checked)
-        showFullScreen();
-    else
-        showNormal();
-}
-
-void Atlas::action_Configure()
-{
-    ConfigDialog * dialog =new ConfigDialog(this);
-    dialog->show();
-}
-
-void Atlas::action_Assets()
-{/*
-    TextureDialog dialog(&editor.assets);
-    dialog.exec();*/
-}
-
-void Atlas::on_toolTab_currentChanged(int index)
-{
-    if(index>=0)
-        editor.selectTool(index);
-}
-
-void Atlas::on_view_free_clicked()
-{
-    editor.driver.setView(Driver::FREE);
-}
-
-void Atlas::on_view_editor_clicked()
-{
-    editor.driver.setView(Driver::EDITOR);
-}
-
-void Atlas::on_view_player_clicked()
-{
-    editor.driver.setView(Driver::PLAYER);
+    cerr<<debugMessage.source()<<" "<<debugMessage.message()<<endl;
 }

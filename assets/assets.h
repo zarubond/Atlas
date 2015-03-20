@@ -1,6 +1,6 @@
 /**
  *  Atlas - Volumetric terrain editor
- *  Copyright (C) 2012-2013  Ondřej Záruba
+ *  Copyright (C) 2012-2015  Ondřej Záruba
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,11 +18,11 @@
 #define ASSETS_H
 
 #include <QFile>
-#include <QMessageBox>
 #include <QXmlStreamReader>
-#include <QDebug>
 #include <QFileInfo>
 #include <QDir>
+
+#include "../lib/tools/shell.h"
 
 /**
  * @brief The Assets class
